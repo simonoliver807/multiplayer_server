@@ -1,11 +1,12 @@
 var renderer;
 var scene;
 var camera;
+var clientfps = [];
 var y_sphere;
 var g_sphere;
-var player1 = 0;
 var forward;
 var backward;
+var lastframetime = 0;
 var left;
 var right;
 var up;
@@ -86,12 +87,12 @@ function createCamera() {
 }
 
 function createLight() {
-    var spotLight = new THREE.SpotLight(0xffffff);
-    spotLight.position.set(10, 20, 20);
-    spotLight.shadow.camera.near = 20;
-    spotLight.shadow.camera.far = 10;
-    spotLight.castShadow = true;
-    scene.add(spotLight);
+    var directionalLight = new THREE.DirectionalLight( 0xffffff, 1 );
+    directionalLight.position.set( 0, 1, 0 );
+    directionalLight.shadow.camera.near = 20;
+    directionalLight.shadow.camera.far = 10;
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
 }
 
 function createSphere( color ) {
@@ -117,57 +118,68 @@ function createPlane() {
     scene.add(plane);
 }
 
-//init() gets executed once
 function init() {
 
+    // start the multiplayer server
+    gamecore.start();
     scene = new THREE.Scene();
     
     createRenderer();
     createCamera();
     createLight();
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
 
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
     y_sphere = createSphere( 'yellow' );
     y_sphere.position.set( 10, 0, 10 );
     g_sphere = createSphere( 'green' );
     g_sphere.position.set( -10, 0, -10 );
-    createPlane();
-    // start the multiplayer server
-    gamecore.start();
 
+    createPlane();
     document.body.appendChild(renderer.domElement);
-    //render() gets called at end of init
-    //as it looped forever
     render();
 }
 
-// render loop to update three.js
 function render() {
 
+    // update player positions when the data streams have started
+    if ( gamecore.player1 ) {
+        if ( forward ) {
+            gamecore.player1.position.z += 0.5;
+        }
+        if ( backward ) {
+            gamecore.player1.position.z -= 0.5;
+        }
+        if ( left ) {
+            gamecore.player1.position.x -= 0.5;
+        }
+        if ( right ) {
+            gamecore.player1.position.x += 0.5;
+        }
+        if ( down ) {
+            gamecore.player1.position.y -= 0.5;
+        }
+        if ( up ) {
+            gamecore.player1.position.y += 0.5;
+        }
 
-    if ( forward ) {
-        y_sphere.position.z += 0.5;
+        // Set player 2 position from the server update.   
+        gamecore.client_process_net_updates()
+        // Now send out player 1 position to the server
+        gamecore.client_handle_input( gamecore.player1.position );
     }
-    if ( backward ) {
-        y_sphere.position.z -= 0.5;
-    }
-    if ( left ) {
-        y_sphere.position.x -= 0.5;
-    }
-    if ( right ) {
-        y_sphere.position.x += 0.5;
-    }
-    if ( down ) {
-        y_sphere.position.y -= 0.5;
-    }
-    if ( up ) {
-        y_sphere.position.y += 0.5;
-    }
+      // create a physics delta time and from that a client fps
+      var t = new Date().getTime();
+      pdt = lastframetime ? ((t - lastframetime) / 1000.0) : 0.016;
+      lastframetime = t;
+      clientfps.push( pdt );
+      if ( clientfps.length > 100 ) {
+        var avg_fps = clientfps.reduce( (a, b) => a + b, 0 )/100;
+        avg_fps = 1 / avg_fps;
+        document.getElementById('clientfps').innerHTML = 'client fps: ' + Math.round( avg_fps );
+        document.getElementById('serverfps').innerHTML = 'server fps: ' + Math.round( gamecore.serverfps );
+        clientfps = [];
+      }
 
-    // Set player 2 position from the server update. Everything should all be running at 60fps but depending on latency it may not be      
-    gamecore.client_process_net_updates()
-    // Now send out player 1 position to the server
-    gamecore.client_handle_input( player1 );
     // And render
     renderer.render(scene, camera);
     requestAnimationFrame(render);

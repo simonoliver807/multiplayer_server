@@ -30,11 +30,11 @@ let gameData = {};
 io.on('connection', (client) => {
 	
 	if ( app.locals.host ) {
-			gameData = { game_id: uuidv1()  ,player1: client.id, player2: 'player2' };
-			// send the game id to the client
-			client.emit('gamestart', { game_id: gameData.game_id, host: 1, player_id: client.id });
-			gameserver.join_game( gameData, client );
-			numberOfGame += 1;
+		gameData = { game_id: uuidv1()  ,player1: client.id, player2: 'player2' };
+		// send the game id to the client
+		client.emit('gamestart', { game_id: gameData.game_id, host: 1, player_id: client.id });
+		gameserver.join_game( gameData, client );
+		numberOfGame += 1;
 	}
 	if ( !app.locals.host ) {
 		gameData.player2 = client.id;
@@ -44,10 +44,10 @@ io.on('connection', (client) => {
 	}
 	app.locals.host ? app.locals.host = 0 : app.locals.host = 1 ;
 
-
-	client.on('setGamedata', function ( data ) {
+	// handle the game data sent by client
+	client.on('setGameData', function ( data ) {
     	try {
-    		gameserver.setGamedata( data );
+    		gameserver.setGameData( data );
     	}
     	catch (err) {
     		console.log( err )

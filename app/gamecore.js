@@ -1,29 +1,33 @@
 
 var gamecore = function gamecore () {
 
+    // public
+    this.player1;
+    this.serverfps;
 
-    var player_id = 0;
+    // private
+    var client_smooth = 8;
+    var client_time = 0;
+    var destpos = 0;
     var game_id = 0;
     var host = 0;
+    var next_point = 0;
     var player2 = 0;
+    var point = 0;
+    var player_id = 0;
+    var pldata = 0;
+    var previous = 0;
+    var other_past_pos = new THREE.Vector3();
+    var other_target_pos = new THREE.Vector3();
     var server_time = 0;
     var serverfps = 0;
-    var client_time = 0;
+    var target = 0;
     var socket = 0;
 
-    // this.ghostpos = new OIMO.Vec3();
-    var destpos  = new THREE.Vector3();
-
-    this.old_state = new THREE.Vector3();
-    this.cur_state = new THREE.Vector3();
-    this.state_time = new Date().getTime()
-
     // Array of inputs from the server
-    var inputs = []
     var server_updates = [];
-    var playerData = 0;
     var net_offset = 0.1;
-    // allocate x, y and z to the buffer size.
+    // allocate x, y and z positons to the buffer size.
     var buffer_size = 3;      
 
     return {
@@ -32,11 +36,12 @@ var gamecore = function gamecore () {
 
     		socket = io('http://localhost:9001');
         // received from sever when starting the new game
-        socket.on('gamestart', this.ongamestart() );
+        socket.on('gamestart', this.ongamestart.bind( this ) );
         // Each time the server updates this event fires
-        socket.on('onserverupdate', this.client_onserverupdate_received() );
-        
+        socket.on('onserverupdate', this.client_onserverupdate_received.bind( this ) );
 
+        // initialise public variables
+        this.player1 = 0;
     			
     	},
       ongamestart: function ( data ) {
@@ -46,33 +51,42 @@ var gamecore = function gamecore () {
         game_id = data.game_id;
         if(data.host){
           host = 1;
+          this.player1 = y_sphere;
           player2 = g_sphere;
         }
         else { 
-          player2 = y_sphere
+          this.player1 = g_sphere;
+          player2 = y_sphere;
         }
 
       },
       client_onserverupdate_received: function ( data ) {
 
+        data.vals.pldata = new Float32Array( data.vals.pldata );
         server_time = data.t;
         serverfps = Math.floor(1 / data.fps); 
+        this.serverfps = serverfps;
         // offset the client time according to the server time 
-        client_time = this.server_time - this.net_offset;
+        client_time = server_time - net_offset;
         // keep the inputs at array length 60
         server_updates.push( data );
-        if ( server_updates.length >= (60 * this.buffer_size)) {
+        if ( server_updates.length >= ( 60 )) {
           server_updates.splice(0, 1);
         }
       },
-      client_handle_input: function() {
+      client_handle_input: function( ply1pos ) {
 
-        var a = 0;
+        pldata = new Float32Array( 3 );
+        pldata[0]  = ply1pos.x;
+        pldata[1]  = ply1pos.y;
+        pldata[2]  = ply1pos.z;
+        var dataarr = [ pldata.buffer, player_id, game_id ];
+        socket.emit( 'setGameData', dataarr );
 
       },
       client_process_net_updates: function() {
         // No updates...
-        if (! server_updates.length) return
+        if (! server_updates.length) { return; }
 
 
         // Find the position in the timeline of updates we stored.
@@ -82,103 +96,57 @@ var gamecore = function gamecore () {
           // , this.udprevious = null
 
 
-        for (var i=0; i< server_updates.length ; i++) {
+        for ( var i = 0; i < server_updates.length; i++ ) {
           //
 
-          this.point = server_updates[i]
-          this.next_point = server_updates[i + 1]
+          point = server_updates[i];
+          next_point = server_updates[i + 1];
 
           // Compare our point in time with the server times we have
-          if (this.client_time > this.point.t && this.current_time < this.next_point.t ) {
-            this.udtarget = this.next_point
-            this.udprevious = this.point
+          if ( client_time > point.t && client_time < next_point.t ) {
+            target = next_point
+            previous = point
             break
           }
         }
+        // With no target we store the last known server position and move to that instead
+        if (! target) {
+          target = server_updates[0]
+          previous = server_updates[0]
+        }
+
+        // create a time percentage to use for linear interpolation (lerp)
+        target_time = target.t
+        var difference = target_time - client_time;
+        var max_difference = ( target.t - previous.t);
+        var time_point = (difference / max_difference);
+
+
+        // set player 2 positions from target and previous vectors
+        other_target_pos.set( target.vals.pldata[0],  target.vals.pldata[1],  target.vals.pldata[2] );
+        other_past_pos.set( previous.vals.pldata[0], previous.vals.pldata[1], previous.vals.pldata[2] ); 
+
+        // now lerp between the target and previous positions based on the time percentage
+        destpos  = this.v_lerp( other_past_pos, other_target_pos, time_point );
+
+        if ( client_smooth ) {
+          //apply smoothing from current pos to the new destination pos
+          var tempPosition = this.v_lerp( player2.position, destpos, pdt * client_smooth);
+          player2.position.set( tempPosition.x, tempPosition.y, tempPosition.z );
+        }
+        else {
+           player2.position.set ( destpos.x, destpos.y, destpos.z );
+        }
+
       },
-
-      // With no target we store the last known
-      // server position and move to that instead
-      // if (! this.udtarget) {
-      //   this.udtarget = this.server_updates[0]
-      //   this.udprevious = this.server_updates[0]
-      // }
-
-      // // Now that we have a target and a previous destination,
-      // // We can interpolate between them based on 'how far in between' we are.
-      // // This is simple percentage maths, value/target = [0,1] range of numbers.
-      // // lerp requires the 0,1 value to lerp to? thats the one.
-
-      // if (this.udtarget && this.udprevious) {
-
-      //   this.target_time = this.udtarget.t
-
-      //   var difference = this.target_time - this.current_time;
-      //   var max_difference = (this.udtarget.t - this.udprevious.t);
-      //   var time_point = (difference / max_difference);
-
-      //   // Because we use the same target and previous in extreme cases
-      //   // It is possible to get incorrect values due to division by 0 difference
-      //   // and such. This is a safe guard and should probably not be here. lol.
-      //   // if (isNaN(time_point)) time_point = 0
-      //   // if (time_point == -Infinity) time_point = 0
-      //   // if (time_point == Infinity) time_point = 0
-
-
-      //   // go update the drones and the ms
-      //   this.updatedrones( this.udtarget.vals.pldata, this.udprevious, this.udtarget.t );
-      //   this.updatems( this.udtarget );
-
-
-      //   if ( this.udtarget.vals.playerid != this.player_self.id) {
-      //     var id = this.udtarget.vals.playerid;
-
-
-      //     // The other players positions in this timeline, behind us and in front of us
-      //     var other_target_pos = (this.udtarget.vals) ? this.tvec3.set(this.udtarget.vals.pldata[0], this.udtarget.vals.pldata[1], this.udtarget.vals.pldata[2]) : new OIMO.Vec3();
-      //     var other_past_pos = (this.udprevious.vals) ? this.pvec3.set(this.udprevious.vals.pldata[0], this.udprevious.vals.pldata[1],this.udprevious.vals.pldata[2] ) : other_target_pos;  //set to target if this guy is new
-
-      //     this.ply2mesh.userData.tquat.set( this.udtarget.vals.pldata[3], this.udtarget.vals.pldata[4], this.udtarget.vals.pldata[5], this.udtarget.vals.pldata[6] );
-      //     this.ply2mesh.userData.pquat.set( this.udprevious.vals.pldata[3], this.udprevious.vals.pldata[4], this.udprevious.vals.pldata[5], this.udprevious.vals.pldata[6] );  //set to target if this guy is new
-      //     if( this.udtarget.vals.pldata[7] ){ this.ply2mesh.children[5].material.visible = true; }
-      //     else { this.ply2mesh.children[5].material.visible = false; }
-
-      //     //this.ply2mesh.userData.multiq.slerp( this.tquat, time_point );
-      //     //this.ply2mesh.quaternion.slerp( this.tquat, time_point );
-
-      //     if (this.player_set[id]) {
-      //       // update the dest block, this is a simple lerp
-      //       // to the target from the previous point in the server_updates buffer
-      //       this.player_set[id].destpos  = this.v_lerp(other_past_pos, other_target_pos, time_point);
-      //       // do the same for the quaternion
-      //       this.ply2mesh.userData.tquat.slerp( this.ply2mesh.userData.pquat, time_point);
-      //       this.ply2mesh.quaternion.set( this.ply2mesh.userData.tquat.x, this.ply2mesh.userData.tquat.y, this.ply2mesh.userData.tquat.z, this.ply2mesh.userData.tquat.w );
-
-            
-      //       //apply smoothing from current pos to the new destination pos
-      //       if (this.client_smooth) {
-      //       this.player_set[id].pos = this.v_lerp(this.player_set[id].pos, this.player_set[id].destpos, this.pdt * this.client_smooth);
-      //        // this.player_set[id].pos = this.v_lerp(this.player_set[id].pos, this.player_set[id].destpos,  this.pdt );
-      //         var subvec = new OIMO.Vec3();
-      //         subvec.sub( this.ply2.body.position , this.player_set[id].pos );
-      //         if ( (subvec.x > 0.01 || subvec.x < -0.01) || ( subvec.y >  0.01 || subvec.y < -0.01 ) || ( subvec.z >  0.01 || subvec.z < -0.01) ) {
-      //           this.ply2.body.position.set( this.player_set[id].pos.x, this.player_set[id].pos.y, this.player_set[id].pos.z );
-      //           this.ply2.body.sleepPosition.set( this.player_set[id].pos.x, this.player_set[id].pos.y, this.player_set[id].pos.z );
-      //           this.ply2mesh.position.set( this.player_set[id].pos.x * 100, this.player_set[id].pos.y * 100, this.player_set[id].pos.z * 100 ); 
-      //         }
-      //         else { this.player_set[id].pos.x = this.ply2.body.position.x;
-      //                this.player_set[id].pos.y = this.ply2.body.position.y;
-      //                this.player_set[id].pos.z = this.ply2.body.position.z; 
-      //              }
-      //       }
-      //       else {
-      //         this.ply2.body.position.set( this.player_set[id].destpos.x, this.player_set[id].destpos.y, this.player_set[id].destpos.z );
-      //       }
-      //     }
-      //   }
     	v_lerp: function ( v, tv, t ) {
 			return { x:this.lerp(v.x, tv.x, t), y:this.lerp(v.y, tv.y, t), z:this.lerp(v.z, tv.z, t) } 
-		  }
+		  },
+      lerp: function(p, n, t) { 
+        var _t = Number(t); 
+        _t = (Math.max(0, Math.min(1, _t))); 
+        return (p * (1 - _t) + n * _t);
+      }
 
     }
 }

@@ -194,19 +194,12 @@
       // this.pldata[game.player2] = new Float32Array( 8 );
   }
 
-
-  game_core.prototype.player_disconnect = function( uuid ) {
-    // someone quit the game, delete them from our list !
-    delete this.player_manifest[uuid];
-  }
-
-  game_core.prototype.handle_server_input = function( input, ms1y, ms2y, drone, input_time, pl_uuid ) { 
+  game_core.prototype.handle_server_input = function( pldata, pl_uuid ) { 
 
     try {
-      this.il = input.length;
-      this.dronearr[pl_uuid] = [];
-      // Store the input on the player instance for processing in the physics loop
-      this.player_manifest[ pl_uuid ].inputs.push({ pos: [input[0],input[1],input[2]], time: input_time });
+      this.il = pldata.length;
+      // Store the pldata on the player instance for processing in the physics loop
+      this.player_manifest[ pl_uuid ].inputs.push( { pos: [ pldata[0], pldata[1], pldata[2] ] } );
 
     }
     catch (err) {
